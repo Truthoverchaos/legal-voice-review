@@ -1,0 +1,18 @@
+{
+  "short_name": "LegalVoice",
+  "name": "Legal Voice Review & Revision",
+  "description": "Verbal review and in-line revision tool for legal drafts with automatic backup versioning.",
+  "start_url": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#1e293b",
+  "icons": [
+    {
+      "src": "/static/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>Legal Voice Review & Revision</title>
+
+  <!-- iOS PWA Meta Tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Legal Voice">
+  <link rel="apple-touch-icon" href="/static/icon.svg">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/static/css/app.css">
+</head>
+<body>
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="brand">
+      <svg class="brand-icon" viewBox="0 0 24 24">
+        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 14H9V8h2v8zm4 0h-2V8h2v8z"/>
+      </svg>
+      <h1>Legal Voice</h1>
+    </div>
+    <div id="backupBadge" class="badge-versioning" style="display: none;">
+      ✓ Clean Backup Saved
+    </div>
+  </header>
+
+  <!-- Document Selector Bar -->
+  <section class="doc-bar">
+    <div class="doc-info">
+      <div id="docTitle" class="doc-title">Select a Document</div>
+      <div id="docMeta" class="doc-meta">Loading Google Drive draft...</div>
+    </div>
+    <button id="btnSelectDoc" class="btn-select-doc">Switch Draft</button>
+  </section>
+
+  <!-- Progress Bar -->
+  <div class="progress-container">
+    <div id="progressFill" class="progress-fill"></div>
+  </div>
+
+  <!-- Main Stage -->
+  <main class="main-stage">
+    
+    <!-- Active Paragraph -->
+    <article class="active-card">
+      <div class="card-label">
+        <span id="paraLabel">Paragraph 1 of ...</span>
+        <div id="speakingWave" class="speaking-indicator">
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+          <div class="bar"></div>
+        </div>
+      </div>
+      <p id="paraText" class="card-text">
+        Initializing document review session...
+      </p>
+    </article>
+
+    <!-- Before & After Diff Card -->
+    <section id="diffCard" class="diff-card">
+      <div class="diff-header">
+        <span>Clean In-Line Revision Applied</span>
+        <span style="font-size: 0.72rem; color: #94a3b8;">Two-version record preserved</span>
+      </div>
+      <div class="diff-old" id="diffOld"></div>
+      <div class="diff-new" id="diffNew"></div>
+    </section>
+
+    <!-- Assistant Status / Guidance Box -->
+    <div id="statusBox" class="status-box">
+      Ready. Tap the <strong>Microphone</strong> button below to start reading the draft. You can interrupt verbally at any time.
+    </div>
+
+    <!-- Quick Verbal Edit / Command Simulation Box -->
+    <div style="display: flex; gap: 8px; margin-top: 8px;">
+      <input type="text" id="txtInstruction" placeholder="Or type a verbal instruction (e.g. 'clarify date to Aug 10')" style="flex: 1; background: #1e293b; border: 1px solid #334155; border-radius: 8px; color: white; padding: 10px 14px; font-size: 0.85rem;">
+      <button id="btnSendInstruction" style="background: #38bdf8; border: none; border-radius: 8px; font-weight: 700; color: #0f172a; padding: 0 16px; font-size: 0.85rem; cursor: pointer;">Send</button>
+    </div>
+
+  </main>
+
+  <!-- Floating Voice & Navigation Dock -->
+  <nav class="voice-dock">
+    <button id="btnPrev" class="dock-btn" title="Previous Paragraph">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="15 18 9 12 15 6"></polyline>
+      </svg>
+    </button>
+
+    <button id="btnInterrupt" class="dock-btn" title="Interrupt / Barge-In" style="color: #f43f5e; border-color: rgba(244,63,94,0.4);">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="6" y="6" width="12" height="12" rx="2"></rect>
+      </svg>
+    </button>
+
+    <button id="btnMic" class="dock-btn btn-mic" title="Toggle Verbal Review">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+        <line x1="12" y1="19" x2="12" y2="23"></line>
+        <line x1="8" y1="23" x2="16" y2="23"></line>
+      </svg>
+    </button>
+
+    <button id="btnNext" class="dock-btn" title="Next Paragraph">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+        <polyline points="9 18 15 12 9 6"></polyline>
+      </svg>
+    </button>
+  </nav>
+
+  <!-- Google Drive Document Picker Modal -->
+  <div id="docModal" class="modal-overlay">
+    <div class="modal-sheet">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+        <h2 class="modal-title">Google Drive Drafts</h2>
+        <button id="btnCloseModal" style="background: none; border: none; color: #94a3b8; font-size: 1.5rem; cursor: pointer;">✕</button>
+      </div>
+      <p class="modal-subtitle">Select a draft to begin verbal review. A pre-review backup copy will be automatically preserved.</p>
+      
+      <div id="docList" class="doc-list">
+        <!-- Injected via JavaScript -->
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/js/audio_engine.js"></script>
+  <script src="/static/js/app.js"></script>
+  <script>
+    // Wire up the manual instruction sender for testing or typing
+    document.getElementById('btnSendInstruction').onclick = () => {
+      const input = document.getElementById('txtInstruction');
+      const val = input.value.trim();
+      if (!val) return;
+      
+      // Dispatch to session via WebSocket or REST
+      if (window.ws && window.ws.readyState === WebSocket.OPEN) {
+        window.ws.send(JSON.stringify({ type: 'instruction', text: val }));
+      } else {
+        // Use manual edit REST endpoint
+        fetch('/api/sessions/doc_mandamus_001/edit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ revised_text: val })
+        }).then(r => r.json()).then(data => {
+          document.getElementById('diffOld').textContent = data.edit.original_text;
+          document.getElementById('diffNew').textContent = data.edit.revised_text;
+          document.getElementById('diffCard').classList.add('show');
+          document.getElementById('paraText').textContent = data.edit.revised_text;
+        });
+      }
+      input.value = '';
+    };
+  </script>
+</body>
+</html>
