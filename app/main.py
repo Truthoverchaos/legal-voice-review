@@ -139,7 +139,7 @@ async def review_websocket_endpoint(websocket: WebSocket, doc_id: str):
 
 # --- Serve iPhone Progressive Web App (PWA) ---
 
-frontend_path = "/working_dir/c_8afa272a78346a93/legal_voice_review/frontend"
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))`nfrontend_path = os.path.join(BASE_DIR, "frontend")
 
 if os.path.exists(frontend_path):
     app.mount("/static", StaticFiles(directory=frontend_path), name="static")
