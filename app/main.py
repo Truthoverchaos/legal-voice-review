@@ -41,8 +41,16 @@ app = FastAPI(
     description="Full-duplex verbal review & revision PWA for Google Docs legal drafts on iPhone."
 )
 
-# Workspace service singleton (configured with user's OAuth token if present)
-workspace_service = WorkspaceService(access_token=settings.GOOGLE_OAUTH_TOKEN or None)
+# Workspace service singleton (configured with user's OAuth credentials if present).
+# If GOOGLE_REFRESH_TOKEN + GOOGLE_CLIENT_ID/SECRET are set, access tokens are
+# refreshed automatically; otherwise GOOGLE_OAUTH_TOKEN is used as-is and will
+# expire ~1 hour after it was issued.
+workspace_service = WorkspaceService(
+    access_token=settings.GOOGLE_OAUTH_TOKEN or None,
+    client_id=settings.GOOGLE_CLIENT_ID or None,
+    client_secret=settings.GOOGLE_CLIENT_SECRET or None,
+    refresh_token=settings.GOOGLE_REFRESH_TOKEN or None,
+)
 
 # Request Models
 class StartSessionRequest(BaseModel):

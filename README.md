@@ -83,6 +83,10 @@ Create a `.env` file in the root directory:
 GOOGLE_CLIENT_ID=your_google_client_id.apps.googleusercontent.com
 GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_OAUTH_TOKEN=your_oauth_token
+# Optional but recommended: a refresh token from a one-time OAuth consent
+# (access_type=offline, prompt=consent). When set alongside CLIENT_ID/SECRET,
+# access tokens are refreshed automatically instead of expiring after ~1 hour.
+GOOGLE_REFRESH_TOKEN=your_refresh_token
 
 # Gemini Multimodal Live API
 GEMINI_API_KEY=your_gemini_api_key

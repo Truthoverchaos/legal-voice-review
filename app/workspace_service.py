@@ -1,9 +1,12 @@
 import datetime
 import logging
+import time
 from typing import Dict, List, Optional, Any
 import httpx
 
 logger = logging.getLogger("workspace_service")
+
+GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 
 class DocumentParagraph:
     def __init__(self, paragraph_id: int, text: str, start_index: int, end_index: int, style: str = "NORMAL_TEXT"):
@@ -30,22 +33,74 @@ class WorkspaceService:
       - Applies clean in-line edits directly to the working document (no track changes).
     """
 
-    def __init__(self, access_token: Optional[str] = None):
+    def __init__(
+        self,
+        access_token: Optional[str] = None,
+        client_id: Optional[str] = None,
+        client_secret: Optional[str] = None,
+        refresh_token: Optional[str] = None,
+    ):
+        # access_token: a static bearer token (legacy path). Expires ~1 hour after
+        # issuance and is never renewed -- only used when no refresh_token is configured.
         self.access_token = access_token
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.refresh_token = refresh_token
+        self._cached_access_token: Optional[str] = access_token
+        self._token_expires_at: float = 0.0  # epoch seconds; 0 = never refreshed
         self.docs_base_url = "https://docs.googleapis.com/v1/documents"
         self.drive_base_url = "https://www.googleapis.com/drive/v3/files"
 
-    def _headers(self) -> Dict[str, str]:
+    @property
+    def has_credentials(self) -> bool:
+        """True if any auth path is configured (static token or refresh flow)."""
+        return bool(self.access_token or self.refresh_token)
+
+    async def _get_access_token(self) -> Optional[str]:
+        """
+        Returns a valid access token. If client_id/client_secret/refresh_token are
+        all configured, proactively refreshes via Google's OAuth2 token endpoint
+        (cached, refreshed 5 minutes before expiry) so the integration keeps working
+        indefinitely. Falls back to a static access_token (e.g. one pasted directly
+        into GOOGLE_OAUTH_TOKEN with no refresh token) if no refresh token is
+        configured -- that path stops working ~1 hour after the token was issued.
+        """
+        if self.refresh_token and self.client_id and self.client_secret:
+            if self._cached_access_token and time.time() < self._token_expires_at - 300:
+                return self._cached_access_token
+            async with httpx.AsyncClient() as client:
+                resp = await client.post(
+                    GOOGLE_TOKEN_URL,
+                    data={
+                        "client_id": self.client_id,
+                        "client_secret": self.client_secret,
+                        "refresh_token": self.refresh_token,
+                        "grant_type": "refresh_token",
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                self._cached_access_token = data["access_token"]
+                self._token_expires_at = time.time() + data.get("expires_in", 3600)
+                logger.info(
+                    "Refreshed Google OAuth access token; expires in %s s",
+                    data.get("expires_in"),
+                )
+                return self._cached_access_token
+        return self.access_token
+
+    async def _headers(self) -> Dict[str, str]:
         headers = {"Content-Type": "application/json"}
-        if self.access_token:
-            headers["Authorization"] = f"Bearer {self.access_token}"
+        token = await self._get_access_token()
+        if token:
+            headers["Authorization"] = f"Bearer {token}"
         return headers
 
     async def list_drive_documents(self) -> List[Dict[str, Any]]:
         """
         Lists editable Google Docs from Google Drive.
         """
-        if not self.access_token:
+        if not self.has_credentials:
             # Simulated legal draft files for demonstration/offline review
             return [
                 {
@@ -72,7 +127,7 @@ class WorkspaceService:
         url = f"{self.drive_base_url}?q={query}&fields=files(id,name,modifiedTime,webViewLink)&orderBy=modifiedTime desc&pageSize=20"
         
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=self._headers())
+            resp = await client.get(url, headers=await self._headers())
             resp.raise_for_status()
             data = resp.json()
             return data.get("files", [])
@@ -87,7 +142,7 @@ class WorkspaceService:
         
         logger.info(f"Cloning pre-review backup for '{original_title}' (ID: {file_id}) -> '{backup_title}'")
         
-        if not self.access_token:
+        if not self.has_credentials:
             return {
                 "success": True,
                 "backup_file_id": f"backup_{file_id}_{int(datetime.datetime.now().timestamp())}",
@@ -104,7 +159,7 @@ class WorkspaceService:
         }
 
         async with httpx.AsyncClient() as client:
-            resp = await client.post(copy_url, headers=self._headers(), json=payload)
+            resp = await client.post(copy_url, headers=await self._headers(), json=payload)
             resp.raise_for_status()
             data = resp.json()
 
@@ -121,7 +176,7 @@ class WorkspaceService:
         """
         Retrieves the Google Doc and parses it into a sequence of addressable paragraphs.
         """
-        if not self.access_token:
+        if not self.has_credentials:
             sample_paragraphs = [
                 DocumentParagraph(0, "IN THE CIRCUIT COURT OF THE THIRTEENTH JUDICIAL CIRCUIT IN AND FOR HILLSBOROUGH COUNTY, FLORIDA", 1, 98, "HEADING_1"),
                 DocumentParagraph(1, "CIVIL DIVISION - CASE NO.: 2026-CA-004521", 99, 140, "HEADING_2"),
@@ -141,7 +196,7 @@ class WorkspaceService:
 
         url = f"{self.docs_base_url}/{doc_id}"
         async with httpx.AsyncClient() as client:
-            resp = await client.get(url, headers=self._headers())
+            resp = await client.get(url, headers=await self._headers())
             resp.raise_for_status()
             doc_data = resp.json()
 
@@ -205,7 +260,7 @@ class WorkspaceService:
         """
         logger.info(f"Applying in-line edit on Doc {doc_id}, para {paragraph_id}: '{original_text[:35]}...' -> '{replacement_text[:35]}...'")
 
-        if not self.access_token:
+        if not self.has_credentials:
             return {
                 "success": True,
                 "doc_id": doc_id,
@@ -249,7 +304,7 @@ class WorkspaceService:
             })
 
         async with httpx.AsyncClient() as client:
-            resp = await client.post(url, headers=self._headers(), json={"requests": requests_payload})
+            resp = await client.post(url, headers=await self._headers(), json={"requests": requests_payload})
             resp.raise_for_status()
             result = resp.json()
 
