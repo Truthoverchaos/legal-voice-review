@@ -18,7 +18,7 @@ USAGE
 1. Open this URL in a browser (already filled in with your OAuth client and
    the Drive + Docs scopes) and sign in / click Allow:
 
-   https://accounts.google.com/o/oauth2/v2/auth?client_id=902950166902-qtep0p0lnrud073leeb21hvvb6hqt6g.apps.googleusercontent.com&redirect_uri=https://developers.google.com/oauthplayground&response_type=code&scope=https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/documents&access_type=offline&prompt=consent
+   https://accounts.google.com/o/oauth2/v2/auth?client_id=902950166902-qtep0pp0lnrud073leeb21hvvb6hqt6g.apps.googleusercontent.com&redirect_uri=https://developers.google.com/oauthplayground&response_type=code&scope=https://www.googleapis.com/auth/drive%20https://www.googleapis.com/auth/documents&access_type=offline&prompt=consent
 
 2. Google redirects you to a Google OAuth Playground page. If Playground
    still has your Client ID/Secret saved in its settings (gear icon, "Use
