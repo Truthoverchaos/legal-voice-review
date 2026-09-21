@@ -219,8 +219,12 @@ class GeminiLiveBridge:
                         curr = self.session.get_current_paragraph()
                         revised_text = msg.get("revised_text")
                         if not revised_text:
-                            # If only conversational instruction was passed, construct revised legal draft text
-                            revised_text = f"{curr['text']} [Revised per instruction: {instruction_text}]"
+                            # No AI rewriting step exists yet (see USER_GUIDE.md item 3).
+                            # Treat the typed/spoken text as the literal replacement for
+                            # the paragraph -- matching the REST /edit endpoint's behavior
+                            # -- rather than silently appending a bracketed note onto the
+                            # original text, which corrupted the saved document.
+                            revised_text = instruction_text
 
                         edit_rec = await self.session.revise_current_paragraph(revised_text)
                         await self.client_ws.send_text(json.dumps({
