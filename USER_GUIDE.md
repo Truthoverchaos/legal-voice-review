@@ -23,15 +23,11 @@ This describes what the app does right now, not what the original README promise
 - **The voice you hear is your iPhone's own built-in voice** (Safari's text-to-speech, whichever system voice it finds — Samantha, Daniel, or similar), not Gemini's voice. The app is not actually connected to Gemini at all right now, despite what it's named.
 - **Tapping the red Interrupt button, or starting to talk while it's reading,** stops the reading instantly. Talking near the phone is detected as volume/energy, not as words — it just knows you started making noise and stops.
 
-## Making an edit — READ THIS BEFORE USING
+## Making an edit
 
 There is a text box near the bottom with a placeholder that says "Or type a verbal instruction." This is currently the **only** way to make an edit — **saying a change out loud does not work today.** The microphone only detects that you're talking (to pause playback); it never converts your speech to text or acts on it.
 
-**There is also an active bug in the typed-edit path you should know about before relying on it:** typing something and hitting Send does not cleanly rewrite the paragraph. Instead, it takes your typed words and tacks them onto the end of the original paragraph text in brackets, then saves that combined mess into your actual Google Doc — for example, typing "change the date to August 10" would leave the paragraph reading like:
-
-> [original paragraph text] [Revised per instruction: change the date to August 10]
-
-That is not what a clean edit should look like, and it will land directly in your live document if you use it. **Until this is fixed, don't use the typed-edit box for a document you care about** — the pre-review backup means nothing is unrecoverable, but you'd have to manually clean up the bracketed text afterward.
+**Fixed 2026-09-20:** typing text and hitting Send now cleanly replaces the current paragraph with exactly what you typed. It used to corrupt the paragraph by appending a bracketed note onto the original text — that bug is gone. But note what "clean replacement" means today: whatever you type becomes the paragraph, verbatim. If you type "change the date to August 10," the paragraph becomes the literal words "change the date to August 10" — it does not yet understand instructions and rewrite the paragraph intelligently. You need to type (or eventually speak) the full replacement paragraph text itself, not a description of the change. See item 3 below for the fix that adds real instruction-following.
 
 ## What "Safe Versioning" actually means right now
 
@@ -40,7 +36,7 @@ That is not what a clean edit should look like, and it will land directly in you
 
 ## Bottom line for today's use
 
-The app is reliable for **listening to a draft read back to you, paragraph by paragraph, hands-free**, using your phone's built-in voice. It is **not yet reliable for making edits** — neither by voice (not built) nor by typing (bug above). Treat it as a read-aloud tool for now, and make your actual edits the way you did before, until the fixes below land.
+The app is reliable for **listening to a draft read back to you, paragraph by paragraph, hands-free**, using your phone's built-in voice. Typed edits now save cleanly, but only if you type the full replacement paragraph rather than a description of the change — there's no instruction-following yet. Speaking a change out loud does nothing yet. Treat it as a read-aloud tool with a basic manual-typing fallback for now.
 
 ---
 
@@ -48,7 +44,7 @@ The app is reliable for **listening to a draft read back to you, paragraph by pa
 
 In order of what would help most:
 
-1. **Fix the typed-edit bug.** Small, fast fix — the fallback logic should replace the paragraph cleanly (like the REST endpoint already does correctly) instead of appending a bracketed note. This makes typed edits trustworthy.
+1. ~~Fix the typed-edit bug.~~ **Done 2026-09-20** — typed edits now replace the paragraph cleanly.
 2. **Real speech-to-text for spoken instructions.** This is the core of what you actually asked for — talking instead of typing. The fastest path is the iPhone browser's own built-in speech recognition (works reasonably well in Safari), feeding transcribed text into the same edit pipeline that already exists. This does not require Gemini at all to work.
 3. **An actual rewrite step.** Right now, whatever text you provide (typed or eventually spoken) becomes the paragraph verbatim. To get real "clarify the date" or "tighten this sentence" style instructions, that instruction needs to go through an AI call that drafts the revised paragraph — a genuine text-generation step, not string handling.
 4. **The real Gemini voice, if you still want it specifically.** This is the biggest lift: a live, two-way audio connection to Gemini's Multimodal Live API (partially scaffolded in the code already, but never wired up) so Gemini both listens and speaks directly, rather than the phone's generic voice. Worth doing last, after the app is trustworthy on the basics.
