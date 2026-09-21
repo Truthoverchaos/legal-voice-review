@@ -12,6 +12,7 @@ class AudioEngine {
     this.onAudioChunk = null; // Callback for outgoing mic PCM chunks
     this.onBargeIn = null; // Callback triggered when user interrupts
     this.onSpeechEnd = null; // Callback when assistant finishes reading
+    this._utteranceChunks = []; // Buffered PCM16 chunks since the last finalizeUtterance() call
   }
 
   // Mandatory for iOS Safari: Call on direct user gesture
@@ -73,6 +74,11 @@ class AudioEngine {
         if (this.onAudioChunk) {
           this.onAudioChunk(pcm16.buffer);
         }
+
+        // Buffer every chunk so a spoken instruction can be packaged up and
+        // sent to the backend for transcription once the user signals they're
+        // done talking (see finalizeUtterance()).
+        this._utteranceChunks.push(pcm16);
       };
 
       this.sourceNode.connect(this.processorNode);
@@ -83,6 +89,43 @@ class AudioEngine {
       console.error('[AudioEngine] Microphone permission or init error:', err);
       throw err;
     }
+  }
+
+  // Discards whatever has been buffered so far without sending it (e.g. when
+  // the assistant starts a fresh turn, or the user starts listening mode).
+  clearUtteranceBuffer() {
+    this._utteranceChunks = [];
+  }
+
+  // Packages everything captured since the buffer was last cleared into a
+  // base64-encoded 16-bit PCM mono 16kHz blob, ready to send to the backend
+  // for Gemini to transcribe and act on. Returns null if nothing was captured
+  // (e.g. the user tapped the button without saying anything).
+  finalizeUtterance() {
+    const chunks = this._utteranceChunks;
+    this._utteranceChunks = [];
+
+    if (!chunks.length) return null;
+
+    let totalLength = 0;
+    for (const c of chunks) totalLength += c.length;
+    if (totalLength === 0) return null;
+
+    const merged = new Int16Array(totalLength);
+    let offset = 0;
+    for (const c of chunks) {
+      merged.set(c, offset);
+      offset += c.length;
+    }
+
+    // Int16Array -> base64 without blowing the call stack on large buffers.
+    const bytes = new Uint8Array(merged.buffer);
+    let binary = '';
+    const CHUNK = 0x8000;
+    for (let i = 0; i < bytes.length; i += CHUNK) {
+      binary += String.fromCharCode.apply(null, bytes.subarray(i, i + CHUNK));
+    }
+    return btoa(binary);
   }
 
   stopRecording() {
@@ -99,6 +142,7 @@ class AudioEngine {
       this.mediaStream = null;
     }
     this.isRecording = false;
+    this._utteranceChunks = [];
     console.log('[AudioEngine] Microphone recording stopped');
   }
 

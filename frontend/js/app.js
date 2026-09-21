@@ -151,6 +151,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         speakingWaveEl.classList.remove('active');
         audioEngine.stopPlayback();
         statusBoxEl.innerHTML = `<span class="highlight">Interrupted:</span> Listening for your changes...`;
+      } else if (msg.type === 'transcribing') {
+        statusBoxEl.innerHTML = `<span class="highlight">Listening back:</span> transcribing what you said...`;
       }
     };
 
@@ -167,10 +169,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         await audioEngine.startRecording(
           (pcmBuffer) => {
-            // Forward raw audio to backend when available
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              // Can stream PCM or VAD events
-            }
+            // Chunks are buffered internally by AudioEngine (see
+            // finalizeUtterance()); nothing to do with each individual chunk here.
           },
           () => {
             // Local Barge-in triggered!
@@ -181,7 +181,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         );
         isVoiceSessionActive = true;
         btnMic.classList.add('listening');
-        statusBoxEl.innerHTML = `<span class="highlight">Voice active:</span> You can speak or interrupt at any time.`;
+        statusBoxEl.innerHTML = `<span class="highlight">Voice active:</span> Speak your instruction, then tap the red button to send it. Say "next" or "repeat" the same way.`;
       } catch (e) {
         alert('Microphone access denied or unavailable: ' + e.message);
       }
@@ -195,10 +195,36 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   };
 
+  // The red button does double duty:
+  // - While the assistant is talking, it interrupts playback (unchanged).
+  // - While idle and voice mode is active, it sends whatever you just said
+  //   as a spoken instruction for Gemini to transcribe and act on.
   btnInterrupt.onclick = () => {
-    audioEngine.stopPlayback();
+    if (audioEngine.isPlaying) {
+      audioEngine.stopPlayback();
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: 'barge_in' }));
+      }
+      statusBoxEl.innerHTML = `<span class="highlight">Interrupted:</span> Listening for your changes...`;
+      return;
+    }
+
+    if (!isVoiceSessionActive) {
+      statusBoxEl.textContent = 'Tap the microphone first, then speak, then tap here to send.';
+      return;
+    }
+
+    const audioBase64 = audioEngine.finalizeUtterance();
+    if (!audioBase64) {
+      statusBoxEl.textContent = "Didn't catch anything. Speak, then tap the red button again.";
+      return;
+    }
+
     if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'barge_in' }));
+      ws.send(JSON.stringify({ type: 'audio_instruction', audio_base64: audioBase64 }));
+      statusBoxEl.innerHTML = `<span class="highlight">Sent:</span> transcribing and applying your instruction...`;
+    } else {
+      statusBoxEl.textContent = 'Not connected. Try again in a moment.';
     }
   };
 
