@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<title>Voice Review</title>
+<style>
+  :root { --bg:#0f1720; --panel:#17212d; --text:#f2f5f8; --muted:#9fb0c2; --accent:#ffd166; --rec:#ef476f; --ok:#06d6a0; }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--text); font:20px/1.5 -apple-system, "Segoe UI", system-ui, sans-serif; }
+  header { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 16px; background:var(--panel); position:sticky; top:0; z-index:2; }
+  header select { font-size:18px; padding:6px 8px; background:#0b1118; color:var(--text); border:1px solid #2b3b4d; border-radius:6px; max-width:100%; }
+  #status { color:var(--muted); font-size:17px; }
+  main { max-width:980px; margin:0 auto; padding:16px; }
+  #where { color:var(--accent); font-size:22px; font-weight:600; margin:8px 0; }
+  #para { font-size:30px; line-height:1.5; min-height:6em; padding:18px; background:var(--panel); border-radius:10px; }
+  #para.quote { border-left:6px solid var(--accent); font-style:italic; }
+  .flag { color:var(--rec); font-size:17px; margin-top:6px; }
+  #controls { display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin:16px 0; }
+  button { font-size:20px; padding:16px 8px; border:0; border-radius:10px; background:#24364a; color:var(--text); cursor:pointer; }
+  button:focus-visible { outline:3px solid var(--accent); }
+  #noteBtn { grid-column:1 / -1; font-size:28px; padding:26px; background:#3a2030; }
+  #noteBtn.rec { background:var(--rec); animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { opacity:.7; } }
+  #typed { width:100%; font-size:20px; padding:12px; border-radius:8px; border:1px solid #2b3b4d; background:#0b1118; color:var(--text); display:none; }
+  #keys { color:var(--muted); font-size:16px; }
+  #keys kbd { background:#24364a; padding:1px 6px; border-radius:4px; color:var(--text); }
+  h2 { font-size:20px; color:var(--muted); margin-top:28px; }
+  .note { background:var(--panel); border-radius:8px; padding:10px 12px; margin:8px 0; display:flex; gap:10px; align-items:flex-start; }
+  .note .n { color:var(--accent); font-weight:700; min-width:3.2em; }
+  .note .t { flex:1; }
+  .note .meta { color:var(--muted); font-size:14px; }
+  .note button { font-size:14px; padding:6px 10px; }
+  audio { width:100%; margin-top:8px; }
+  @media (max-width:600px) { #para { font-size:24px; } #controls { grid-template-columns:repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <strong>Voice Review</strong>
+  <select id="draftSel" aria-label="Draft"></select>
+  <span id="status">Loading…</span>
+</header>
+<main>
+  <div id="where" aria-live="polite"></div>
+  <div id="para" aria-live="polite"></div>
+  <div id="flag" class="flag"></div>
+  <audio id="audio" controls preload="auto"></audio>
+  <div id="controls">
+    <button id="prevBtn" title="Previous paragraph (←)">◀ Para</button>
+    <button id="playBtn" title="Play / pause (Space)">Play</button>
+    <button id="nextBtn" title="Next paragraph (→)">Para ▶</button>
+    <button id="typeBtn" title="Type a note (T)">Type note</button>
+    <button id="noteBtn" title="Record a voice note (N)">● Voice note</button>
+  </div>
+  <input id="typed" placeholder="Type a note for this paragraph, Enter to save, Esc to cancel">
+  <p id="keys">
+    <kbd>Space</kbd> play/pause · <kbd>←</kbd>/<kbd>→</kbd> paragraph · <kbd>↑</kbd>/<kbd>↓</kbd> part ·
+    <kbd>N</kbd> start/stop voice note · <kbd>T</kbd> type note · <kbd>R</kbd> replay paragraph ·
+    <kbd>[</kbd>/<kbd>]</kbd> speed · <kbd>W</kbd> where am I
+  </p>
+  <h2 id="notesHead">Notes</h2>
+  <div id="notes"></div>
+</main>
+<script>
+const BASE = "__BASE__";
+const $ = (id) => document.getElementById(id);
+const audio = $("audio");
+let M = null, notes = [], part = 1, current = null, lastPara = null, recorder = null, starting = false, chunks = [], wasPlaying = false, speed = 1.0, pollTimer = null;
+
+try { speed = parseFloat(localStorage.getItem("lvr-speed")) || 1.0; } catch (e) {}
+
+// ---- audio cues (no need to look at the screen) ----
+let actx = null;
+function beep(freq = 880, ms = 120, times = 1) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    for (let i = 0; i < times; i++) {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.frequency.value = freq; o.connect(g); g.connect(actx.destination);
+      const t = actx.currentTime + i * (ms + 80) / 1000;
+      g.gain.setValueAtTime(0.15, t); g.gain.exponentialRampToValueAtTime(0.001, t + ms / 1000);
+      o.start(t); o.stop(t + ms / 1000);
+    }
+  } catch (e) {}
+}
+function say(text) {
+  try { const u = new SpeechSynthesisUtterance(text); u.rate = 1.1; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch (e) {}
+}
+function status(t) { $("status").textContent = t; }
+
+async function api(path, opts) {
+  const r = await fetch(BASE + path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+async function loadDrafts() {
+  const list = await api("/api/drafts");
+  const sel = $("draftSel");
+  sel.innerHTML = "";
+  for (const d of list) {
+    const o = document.createElement("option");
+    o.value = d.slug; o.textContent = `${d.title} (${d.paragraphs} ¶, ${d.minutes} min)`;
+    if (d.active) o.selected = true;
+    sel.appendChild(o);
+  }
+  if (!list.length) { status("No drafts rendered yet. Run: voice.py render <draft>"); return; }
+  await loadDraft(sel.value);
+}
+
+async function loadDraft(slug) {
+  const d = await api(`/api/drafts/${slug}`);
+  M = d.manifest; notes = d.notes;
+  await api("/api/active", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ slug }) });
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem("lvr-pos-" + slug)); } catch (e) {}
+  if (saved && saved.version === M.version) setPart(saved.part, saved.time); else setPart(1, 0);
+  renderNotes();
+  status(`${M.paragraphs.length} paragraphs · rendered ${M.rendered_at.replace("T", " ")}`);
+}
+
+function setPart(p, t = 0, autoplay = false) {
+  const ep = M.episodes.find(e => e.part === p) || M.episodes[0];
+  part = ep.part;
+  const src = `${BASE}/audio/${M.slug}/${ep.file}`;
+  if (!audio.src.endsWith(src)) audio.src = src;
+  const go = () => { audio.currentTime = t; audio.playbackRate = speed; if (autoplay) audio.play(); };
+  if (audio.readyState >= 1) go(); else audio.addEventListener("loadedmetadata", go, { once: true });
+}
+
+function paraAt(p, t) {
+  let best = null;
+  for (const x of M.paragraphs) if (x.part === p && x.start <= t + 0.05) best = x;
+  return best || M.paragraphs.find(x => x.part === p) || null;
+}
+
+function show() {
+  if (!M) return;
+  const p = paraAt(part, audio.currentTime);
+  if (p !== current) {
+    current = p;
+    if (p) lastPara = p;
+    if (p) {
+      $("where").textContent = `¶${p.num} of ${M.paragraphs.length} · Part ${p.part}/${M.episodes.length}: ${p.section}`;
+      $("para").textContent = p.text;
+      $("para").className = p.kind === "quote" ? "quote" : "";
+      $("flag").textContent = p.verify_missing ? `Audio check flagged this paragraph (heard ${Math.round(p.verify_score * 100)}% match). Listen closely: ${p.verify_missing.join(", ")}` : "";
+      if ("mediaSession" in navigator) {
+        navigator.mediaSession.metadata = new MediaMetadata({ title: `¶${p.num} · ${p.section}`, artist: M.title, album: "Voice Review" });
+      }
+    }
+  }
+  $("playBtn").textContent = audio.paused ? "Play" : "Pause";
+  try { localStorage.setItem("lvr-pos-" + M.slug, JSON.stringify({ version: M.version, part, time: audio.currentTime })); } catch (e) {}
+}
+audio.addEventListener("timeupdate", show);
+audio.addEventListener("play", show);
+audio.addEventListener("pause", show);
+audio.addEventListener("ended", () => {
+  if (part < M.episodes.length) { setPart(part + 1, 0, false); audio.addEventListener("canplay", () => audio.play().catch(() => {}), { once: true }); beep(660, 90, 2); }
+  else { say("End of draft."); }
+});
+
+function jumpPara(delta) {
+  if (!current) return;
+  const i = M.paragraphs.indexOf(current) + delta;
+  const p = M.paragraphs[Math.max(0, Math.min(M.paragraphs.length - 1, i))];
+  const playing = !audio.paused;
+  setPart(p.part, p.start, playing);
+  current = null; setTimeout(show, 50);
+}
+function replay() { if (current) { setPart(current.part, current.start, true); } }
+function jumpPart(delta) {
+  const p = Math.max(1, Math.min(M.episodes.length, part + delta));
+  setPart(p, 0, !audio.paused); current = null; setTimeout(show, 50);
+}
+function togglePlay() { audio.paused ? audio.play() : audio.pause(); }
+function setSpeed(d) {
+  speed = Math.round(Math.max(0.75, Math.min(2.0, speed + d)) * 100) / 100;
+  audio.playbackRate = speed;
+  try { localStorage.setItem("lvr-speed", speed); } catch (e) {}
+  status(`Speed ${speed}×`); say(`${speed}`);
+}
+
+// ---- notes ----
+// The paragraph a note belongs to: the one heard ~1.5 s ago, so a note started
+// just after a paragraph ends (or during the next number) anchors to it.
+function noteAnchor() {
+  if (!M) return null;
+  const p = paraAt(part, Math.max(0, audio.currentTime - 1.5)) || current || lastPara;
+  return p ? p.num : null;
+}
+
+async function startNote() {
+  if (recorder) return stopNote();
+  if (starting) return;
+  starting = true;
+  wasPlaying = !audio.paused; audio.pause();
+  const anchor = noteAnchor(), at = audio.currentTime;
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+    const mime = ["audio/webm;codecs=opus", "audio/mp4", "audio/webm"].find(m => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+    chunks = [];
+    recorder.ondataavailable = e => e.data.size && chunks.push(e.data);
+    recorder.anchor = anchor;
+    recorder.at = at;
+    recorder.start();
+    $("noteBtn").classList.add("rec"); $("noteBtn").textContent = "■ Stop & save note";
+    beep(880, 140);
+    status(`Recording note for ¶${recorder.anchor ?? "?"}… press N again to save`);
+  } catch (e) { recorder = null; say("Microphone unavailable."); status("Mic error: " + e.message); resume(); }
+  finally { starting = false; }
+}
+function stopNote() {
+  const rec = recorder; recorder = null;
+  $("noteBtn").classList.remove("rec"); $("noteBtn").textContent = "● Voice note";
+  rec.onstop = async () => {
+    rec.stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(chunks, { type: rec.mimeType || "audio/webm" });
+    if (blob.size < 2000) { say("Too short, nothing saved."); return resume(); }
+    const b64 = await new Promise(res => { const fr = new FileReader(); fr.onload = () => res(fr.result.split(",")[1]); fr.readAsDataURL(blob); });
+    try {
+      await api("/api/note", { method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ slug: M.slug, num: rec.anchor, audio_b64: b64, mime: blob.type, playback_at: rec.at, source: "desk" }) });
+      beep(1320, 90, 2); say(`Saved, paragraph ${rec.anchor ?? "unknown"}.`);
+      await refreshNotes();
+    } catch (e) { beep(220, 400); say("Save failed."); status("Save failed: " + e.message); }
+    resume();
+  };
+  rec.stop();
+}
+function resume() { if (wasPlaying) setTimeout(() => audio.play(), 1400); }
+
+function typeNote() {
+  wasPlaying = !audio.paused; audio.pause();
+  const box = $("typed"); box.style.display = "block"; box.value = ""; box.focus();
+  box.dataset.anchor = noteAnchor() ?? "";
+}
+$("typed").addEventListener("keydown", async (e) => {
+  e.stopPropagation();
+  const box = $("typed");
+  if (e.key === "Escape") { box.style.display = "none"; resume(); }
+  if (e.key === "Enter" && box.value.trim()) {
+    await api("/api/note", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ slug: M.slug, num: box.dataset.anchor || null, text: box.value, source: "typed" }) });
+    box.style.display = "none"; beep(1320, 90, 2); await refreshNotes(); resume();
+  }
+});
+
+async function refreshNotes() { const d = await api(`/api/drafts/${M.slug}`); notes = d.notes; renderNotes(); }
+function renderNotes() {
+  const box = $("notes"); box.innerHTML = "";
+  $("notesHead").textContent = `Notes (${notes.length})`;
+  const sorted = [...notes].sort((a, b) => (a.num ?? 1e9) - (b.num ?? 1e9) || a.at.localeCompare(b.at));
+  for (const n of sorted) {
+    const div = document.createElement("div"); div.className = "note";
+    const pending = n.audio && !n.transcribed;
+    div.innerHTML = `<span class="n">${n.num ? "¶" + n.num : "—"}</span>
+      <span class="t"><span class="txt"></span><div class="meta"></div></span>`;
+    div.querySelector(".txt").textContent = pending ? "(transcribing…)" : (n.text || "(empty)");
+    div.querySelector(".meta").textContent = `${n.source} · ${n.at.replace("T", " ")}`;
+    if (n.num) { const b = document.createElement("button"); b.textContent = "Go"; b.onclick = () => { const p = M.paragraphs.find(x => x.num === n.num); if (p) setPart(p.part, p.start, false); }; div.appendChild(b); }
+    const del = document.createElement("button"); del.textContent = "Delete";
+    del.onclick = async () => { if (confirm("Delete this note?")) { await api(`/api/notes/${M.slug}/${n.id}/delete`, { method: "POST" }); refreshNotes(); } };
+    div.appendChild(del);
+    box.appendChild(div);
+  }
+  clearTimeout(pollTimer);
+  const fresh = n => (Date.now() - new Date(n.at).getTime()) < 5 * 60 * 1000;
+  if (notes.some(n => n.audio && !n.transcribed && fresh(n))) pollTimer = setTimeout(refreshNotes, 4000);
+}
+
+// ---- wiring ----
+$("playBtn").onclick = togglePlay;
+$("prevBtn").onclick = () => jumpPara(-1);
+$("nextBtn").onclick = () => jumpPara(1);
+$("noteBtn").onclick = startNote;
+$("typeBtn").onclick = typeNote;
+$("draftSel").onchange = (e) => loadDraft(e.target.value);
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT" || e.metaKey || e.ctrlKey || e.altKey) return;
+  const k = e.key;
+  if (recorder || starting) {            // while recording, only N (stop) works
+    if (k === "n" || k === "N" || k === " ") { e.preventDefault(); if (recorder) stopNote(); }
+    return;
+  }
+  if (k === " ") { e.preventDefault(); togglePlay(); }
+  else if (k === "ArrowRight" && !e.shiftKey) { e.preventDefault(); jumpPara(1); }
+  else if (k === "ArrowLeft" && !e.shiftKey) { e.preventDefault(); jumpPara(-1); }
+  else if (k === "ArrowRight") { audio.currentTime += 10; }
+  else if (k === "ArrowLeft") { audio.currentTime -= 10; }
+  else if (k === "ArrowDown") { e.preventDefault(); jumpPart(1); }
+  else if (k === "ArrowUp") { e.preventDefault(); jumpPart(-1); }
+  else if (k === "n" || k === "N") { e.preventDefault(); startNote(); }
+  else if (k === "t" || k === "T") { e.preventDefault(); typeNote(); }
+  else if (k === "r" || k === "R") { replay(); }
+  else if (k === "[") { setSpeed(-0.1); }
+  else if (k === "]") { setSpeed(0.1); }
+  else if (k === "w" || k === "W") { if (current) say(`Paragraph ${current.num} of ${M.paragraphs.length}, ${current.section}.`); }
+});
+
+if ("mediaSession" in navigator) {
+  navigator.mediaSession.setActionHandler("play", () => audio.play());
+  navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+  navigator.mediaSession.setActionHandler("nexttrack", () => jumpPara(1));
+  navigator.mediaSession.setActionHandler("previoustrack", () => jumpPara(-1));
+}
+
+loadDrafts().catch(e => status("Error: " + e.message));
+</script>
+</body>
+</html>

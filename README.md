@@ -1,5 +1,7 @@
 # Legal Voice Review & Revision (iPhone PWA)
 
+> **Retired October 2026.** This version (the Render-hosted PWA below) is superseded by **Voice Review v2** in [`listen/`](listen/SETUP.md): drafts become a private podcast, voice notes are captured by Siri or a desk page, and edits are proposed for approval instead of written into the live document. The rest of this README describes the retired version and is kept for reference.
+
 A full-duplex verbal review tool designed for Florida litigation attorney Christopher Hanson to review drafts of legal documents (briefs, petitions, motions, agreements) aloud on an iPhone, interrupt with verbal revisions, apply clean in-line edits to Google Docs, and preserve clean pre-review versions without track changes clutter.
 
 ---
